@@ -15,6 +15,234 @@ class Timeout(Exception):
     pass
 
 
+def game_occupancy(game):
+    """ This function returns the % of the game board occupied, in other words it returns
+    how close we might be to the end game.
+
+    Parameters
+    ----------
+    game : `isolation.Board`
+        An instance of `isolation.Board` encoding the current state of the
+        game (e.g., player locations and blocked cells).
+
+    Returns
+    -------
+    float
+        Ratio of the number of  occupied / blocked spots on the board to total number of spots on the board.
+    """
+
+    blank_spaces = len(game.get_blank_spaces())
+    total = game.width*game.height
+
+    return (total-blank_spaces)/total
+
+
+def potential_moves(game, spot):
+    """ This function returns number of L shaped moves possible from a given spot
+
+    Parameters
+    ----------
+    game : `isolation.Board`
+        An instance of `isolation.Board` encoding the current state of the
+        game (e.g., player locations and blocked cells).
+
+    spot : (int, int)
+        The coordinate pair (row, column) of the spot from which we are computing how many
+        potential moves are possible.
+
+    Returns
+    -------
+    int
+        Returns the number of possible moves from a give spot given the arrangement of the board.
+    """
+
+    # list of all possible L shaped moves from a spot (ignore boundaries as we check in the black spaces anyways)
+    all_moves = [(spot[0]+1, spot[1]+2),
+                 (spot[0]+1, spot[1]-2),
+                 (spot[0]-1, spot[1]+2),
+                 (spot[0]-1, spot[1]-2),
+                 (spot[0]+2, spot[1]+1),
+                 (spot[0]+2, spot[1]-1),
+                 (spot[0]-2, spot[1]+1),
+                 (spot[0]-2, spot[1]-1),
+                 ]
+
+    num_potential_moves = 0
+    for move in all_moves:
+        #increment the number of pontential moves if the move is in current black spot
+        if move in game.get_blank_spaces():
+            num_potential_moves += 1
+
+    return int(num_potential_moves)
+
+
+def ratio_heuristic(game, player):
+    """ This is a heuristic similar to the base heuristic (IM Improved) but more aggressive in the sense that
+    it weights the opponents legal moves in a ratio to player's legals moves before taking the difference.
+    The function outputs the number of player legal moves minus ratio number of opponent legal moves.
+
+    Parameters
+    ----------
+    game : `isolation.Board`
+        An instance of `isolation.Board` encoding the current state of the
+        game (e.g., player locations and blocked cells).
+
+    player : object
+        A player instance in the current game (i.e., an object corresponding to
+        one of the player objects `game.__player_1__` or `game.__player_2__`.)
+
+    Returns
+    -------
+    float
+        The heuristic value as number of player legal moves minus ratio number of opponents legal moves.
+    """
+
+    if game.is_loser(player):
+        return float("-inf")
+
+    if game.is_winner(player):
+        return float("inf")
+
+    own_moves = len(game.get_legal_moves(player))
+    opp_moves = len(game.get_legal_moves(game.get_opponent(player)))
+
+    #I tested it for few ratios and selected 1.5
+    ratio_number = 1.5
+
+    return float(own_moves - ratio_number*opp_moves)
+
+
+def corners_walls_heuristic(game, player):
+    """ This is a heuristic weights a legal move to wall or corner of the board lower than other places.
+      This comes into play after we are greater than initial_phase %
+      into the game as defined by game_occupancy() method.
+
+    Parameters
+    ----------
+    game : `isolation.Board`
+        An instance of `isolation.Board` encoding the current state of the
+        game (e.g., player locations and blocked cells).
+
+    player : object
+        A player instance in the current game (i.e., an object corresponding to
+        one of the player objects `game.__player_1__` or `game.__player_2__`.)
+
+    Returns
+    -------
+    float
+        The heuristic value as number of player legal moves minus ratio number of opponents legal moves. Each legal move
+        is weighted equally before initial phase % game occupancy after which
+        legal moves to walls and corners are weighted lower.
+     """
+
+    if game.is_loser(player):
+        return float("-inf")
+
+    if game.is_winner(player):
+        return float("inf")
+
+    own_moves = game.get_legal_moves(player)
+    opp_moves = game.get_legal_moves(game.get_opponent(player))
+
+    ratio_number = 1.5
+
+    # this variable indicates after what % of board occupancy the weighting comes into play
+    initial_phase = 60
+
+    current_phase = game_occupancy(game)*100
+
+    # defining walls list and corners list
+    walls = [[(0, i) for i in range(game.width)],
+             [(i, 0) for i in range(game.height)],
+             [(game.width - 1, i) for i in range(game.width)],
+             [(i, game.height - 1) for i in range(game.height)],
+             ]
+
+    corners = [(0, 0), (0, game.width-1), (game.height-1, 0), (game.height-1, game.width-1)]
+
+    if current_phase > initial_phase:
+        own_moves_modified = 0
+        for move in own_moves:
+            if move in corners:
+                #corners are incremented by 7 instead of 10
+                own_moves_modified += 10*0.7
+            elif move in walls:
+                # walls incremented by 9 instead of 10
+                own_moves_modified += 10*0.9
+            else:
+                own_moves_modified += 10
+
+        opp_moves_modified = 0
+        for move in opp_moves:
+            if move in corners:
+                opp_moves_modified += 10*0.7
+            elif move in walls:
+                opp_moves_modified += 10*0.9
+            else:
+                opp_moves_modified += 10
+
+        return float(own_moves_modified-opp_moves_modified)
+
+    else:
+        return float(len(own_moves)*10 - ratio_number*len(opp_moves)*10)
+
+
+def one_step_ahead_heuristic(game, player):
+    """ This is a heuristic more generic version of corners and walls heuristic, it
+    weights a legal move by number of possible hops it can take from that spot, in other word we are
+    looking at one step ahead of the game. Again this comes into play after the initial phase.
+
+    Parameters
+    ----------
+    game : `isolation.Board`
+        An instance of `isolation.Board` encoding the current state of the
+        game (e.g., player locations and blocked cells).
+
+    player : object
+        A player instance in the current game (i.e., an object corresponding to
+        one of the player objects `game.__player_1__` or `game.__player_2__`.)
+
+    Returns
+    -------
+    float
+        The heuristic value as number of player legal moves minus ratio number of opponents legal moves.
+        Each legal move is weighted equally until initial phase % game occupancy, after that it is weighted
+        based number of possible hops it can take from that spot.
+     """
+
+    if game.is_loser(player):
+        return float("-inf")
+
+    if game.is_winner(player):
+        return float("inf")
+
+    own_moves = game.get_legal_moves(player)
+    opp_moves = game.get_legal_moves(game.get_opponent(player))
+
+    ratio_number = 1.5
+
+    initial_phase = 60
+
+    current_phase = game_occupancy(game)*100
+
+    if current_phase > initial_phase:
+        own_moves_modified = 0
+        for move in own_moves:
+            #dividing the number of potential hops by 8 (as 8 is the maximum from a spot)
+            move_factor = potential_moves(game, move)/8.0
+            own_moves_modified += 3+7*move_factor
+
+        opp_moves_modified = 0
+        for move in opp_moves:
+            move_factor = potential_moves(game, move)/8.0
+            own_moves_modified += 3+7*move_factor
+
+        return float(own_moves_modified-opp_moves_modified)
+
+    else:
+        return float(len(own_moves)*10 - ratio_number*len(opp_moves)*10)
+
+
 def custom_score(game, player):
     """Calculate the heuristic value of a game state from the point of view
     of the given player.
@@ -37,16 +265,9 @@ def custom_score(game, player):
     float
         The heuristic value of the current game state to the specified player.
     """
-
-    # TODO: finish this function!
-    # raise NotImplementedError
-    if game.is_loser(player):
-        return float("-inf")
-
-    if game.is_winner(player):
-        return float("inf")
-
-    return float(len(game.get_legal_moves(player)))
+    #after heuristic analysis I have choosen corners and walls heuristic combine with ratio number in the
+    # initial phase
+    return corners_walls_heuristic(game, player)
 
 
 class CustomPlayer:
@@ -80,7 +301,7 @@ class CustomPlayer:
     """
 
     def __init__(self, search_depth=3, score_fn=custom_score,
-                 iterative=False, method='minimax', timeout=10.):
+                 iterative=False, method='minimax', timeout=15.):
         self.search_depth = search_depth
         self.iterative = iterative
         self.score = score_fn
@@ -129,10 +350,6 @@ class CustomPlayer:
         # returning immediately if there are no legal moves
         if not legal_moves:
             return (-1, -1)
-        
-        #Opening book with a centre move
-        # if len(legal_moves) == game.width*game.height:
-        #     return (int(game.width*0.5), int())
 
         #move placeholder
         current_best_move = (-1, -1)
@@ -163,8 +380,6 @@ class CustomPlayer:
         # Return the best move from the last completed search iteration
         return current_best_move
 
-
-        # raise NotImplementedError
 
     def minimax(self, game, depth, maximizing_player=True):
         """Implement the minimax search algorithm as described in the lectures.
@@ -222,11 +437,13 @@ class CustomPlayer:
             for action in legal_moves:
                 if maximizing_player:
                     temp_score, _ = self.minimax(game=game.forecast_move(action),depth=depth-1, maximizing_player=False)
+                    # getting the max value
                     if (best_score==None or temp_score > best_score):
                         best_score = temp_score
                         best_action = action
                 if not maximizing_player:
                     temp_score, _ = self.minimax(game=game.forecast_move(action),depth=depth-1, maximizing_player=True)
+                    # getting the min value
                     if (best_score==None or temp_score < best_score):
                         best_score = temp_score
                         best_action = action
@@ -301,10 +518,11 @@ class CustomPlayer:
                     if (best_score==None or temp_score > best_score):
                         best_score = temp_score
                         best_action = action
-
+                    #beta pruning while maximazing
                     if temp_score >= beta:
                         return temp_score, action
 
+                    # update the alpha  while maximizing
                     alpha = max([alpha, temp_score])
 
 
@@ -314,10 +532,10 @@ class CustomPlayer:
                     if (best_score==None or temp_score < best_score):
                         best_score = temp_score
                         best_action = action
-
+                    #alpha pruning while minimizing
                     if temp_score <= alpha:
                         return temp_score, action
-
+                    #upate beta while minimizing
                     beta = min([beta, temp_score])
 
             return best_score, best_action
